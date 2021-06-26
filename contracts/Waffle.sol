@@ -1,45 +1,42 @@
 //SPDX-License-Identifier: AGPL-3.0-or-later
-pragma solidity ^0.6.10;
+pragma solidity ^0.8.0;
 
 // ============ Imports ============
 
-import "@openzeppelin/contracts/utils/SafeMath.sol";
-import "@openzeppelin/contracts/tokens/ERC721/IERC721.sol";
-import "@chainlink/contracts/src/v0.6/VRFConsumerBase.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@chainlink/contracts/src/v0.8/dev/VRFConsumerBase.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
-contract Waffle is IERC721Receiver, VRFConsumerBase {
-  // Use OpenZeppelin SafeMath for uint
-  using SafeMath for uint256;
+contract Waffle is VRFConsumerBase {
+  // ============ Immutable storage ============
+
+  // Chainlink keyHash
+  bytes32 internal immutable keyHash;
+  // Chainlink fee
+  uint256 internal immutable fee;
+  // NFT owner
+  address public immutable owner;
+  // Price (in Ether) per raffle slot
+  uint256 public immutable slotPrice;
+  // Number of total available raffle slots
+  uint256 public immutable numSlotsAvailable;
+  // Address of NFT contract
+  address public immutable nftContract;
+  // NFT ID
+  uint256 public immutable nftID;
 
   // ============ Mutable storage ============
 
-  // Chainlink keyHash
-  bytes32 internal keyHash;
-  // Chainlink fee
-  uint256 internal fee;
   // Result from Chainlink VRF
   uint256 public randomResult = 0;
   // Toggled when contract requests result from Chainlink VRF
   bool public randomResultRequested = false;
-
-  // NFT owner
-  address public owner;
-  // Price (in Ether) per raffle slot
-  uint256 public slotPrice;
-  // Number of total available raffle slots
-  uint256 public numSlotsAvailable;
   // Number of filled raffle slots
   uint256 public numSlotsFilled = 0;
   // Array of slot owners
   address[] public slotOwners;
   // Mapping of slot owners to number of slots owned
   mapping(address => uint256) public addressToSlotsOwned;
-
-  // Address of NFT contract
-  address public nftContract;
-  // NFT ID
-  uint256 public nftID;
   // Toggled when contract holds NFT to raffle
   bool public nftOwned = false;
 
@@ -57,18 +54,18 @@ contract Waffle is IERC721Receiver, VRFConsumerBase {
     address _nftContract,
     address _ChainlinkVRFCoordinator,
     address _ChainlinkLINKToken,
-    address _ChainlinkKeyHash,
-    uint256 _fee,
+    bytes32 _ChainlinkKeyHash,
+    uint256 _ChainlinkFee,
     uint256 _nftID,
     uint256 _slotPrice, 
-    uint256 _numSlotsAvailable,
+    uint256 _numSlotsAvailable
   ) VRFConsumerBase(
     _ChainlinkVRFCoordinator,
     _ChainlinkLINKToken
-  ) public {
+  ) {
     owner = _owner;
     keyHash = _ChainlinkKeyHash;
-    fee = _fee;
+    fee = _ChainlinkFee;
     nftContract = _nftContract;
     nftID = _nftID;
     slotPrice = _slotPrice;
@@ -80,7 +77,7 @@ contract Waffle is IERC721Receiver, VRFConsumerBase {
   /**
    * Enables purchasing _numSlots slots in the raffle
    */
-  function purchaseSlot(uint256 _numSlots) payable {
+  function purchaseSlot(uint256 _numSlots) payable external {
     // Require purchasing at least 1 slot
     require(_numSlots > 0, "Waffle: Cannot purchase 0 slots.");
     // Require the raffle contract to own the NFT to raffle
@@ -90,20 +87,20 @@ contract Waffle is IERC721Receiver, VRFConsumerBase {
     // Prevent claiming after winner selection
     require(randomResultRequested == false, "Waffle: Cannot purchase slot after winner has been chosen.");
     // Require appropriate payment for number of slots to purchase
-    require(msg.value == _numSlots.mul(slotPrice), "Waffle: Insufficient ETH provided to purchase slots.");
+    require(msg.value == _numSlots * slotPrice, "Waffle: Insufficient ETH provided to purchase slots.");
     // Require number of slots to purchase to be <= number of available slots
-    require(_numSlots <= numSlotsAvailable.sub(numSlotsFilled), "Waffle: Requesting to purchase too many slots.");
+    require(_numSlots <= numSlotsAvailable - numSlotsFilled, "Waffle: Requesting to purchase too many slots.");
 
     // For each _numSlots
-    for (int i = 0; i < _numSlots; i++) {
+    for (uint256 i = 0; i < _numSlots; i++) {
       // Add address to slot owners array
       slotOwners.push(msg.sender);
     }
 
     // Increment filled slots
-    numSlotsFilled = numSlotsFilled.add(_numSlots);
+    numSlotsFilled = numSlotsFilled + _numSlots;
     // Increment slots owned by address
-    addressToSlotsOwned[msg.sender] = addressToSlotsOwned[msg.sender].add(_numSlots);
+    addressToSlotsOwned[msg.sender] = addressToSlotsOwned[msg.sender] + _numSlots;
 
     // Emit claim event
     emit SlotsClaimed(msg.sender, _numSlots);
@@ -114,7 +111,7 @@ contract Waffle is IERC721Receiver, VRFConsumerBase {
   /**
    * Collects randomness from Chainlink VRF to propose a winner.
    */
-  function collectRandomWinner() {
+  function collectRandomWinner() external returns (bytes32 requestId) {
     // Require at least 1 raffle slot to be filled
     require(numSlotsFilled > 0, "Waffle: No slots are filled");
     // Require NFT to be owned by raffle contract
@@ -142,7 +139,7 @@ contract Waffle is IERC721Receiver, VRFConsumerBase {
   /**
    * Disburses NFT to winner and raised raffle pool to owner
    */
-  function disburseWinner() {
+  function disburseWinner() external {
     // Require that the contract holds the NFT
     require(nftOwned == true, "Waffle: Cannot disurbse NFT to winner without holding NFT.");
     // Require that a winner has been collected already
@@ -154,7 +151,7 @@ contract Waffle is IERC721Receiver, VRFConsumerBase {
     payable(owner).transfer(address(this).balance);
 
     // Find winner of NFT
-    address winner = slotOwners[randomResult.mod(numSlotsFilled)];
+    address winner = slotOwners[randomResult % numSlotsFilled];
 
     // Transfer NFT to winner
     IERC721(nftContract).safeTransferFrom(address(this), winner, nftID);
@@ -169,7 +166,7 @@ contract Waffle is IERC721Receiver, VRFConsumerBase {
   /**
    * Deletes raffle, assuming that contract owns NFT and a winner has not been selected
    */
-  function deleteRaffle() {
+  function deleteRaffle() external {
     // Require being owner to delete raffle
     require(msg.sender == owner, "Waffle: Only owner can delete raffle.");
     // Require that the contract holds the NFT
