@@ -99,14 +99,6 @@ contract Waffle is VRFConsumerBase, IERC721Receiver {
       slotOwners.push(msg.sender);
     }
 
-    /*
-      Potential optimization?
-
-      keep current index
-      swap with last and pop
-      decrement index by 1 to force check if last index item was address?
-    */
-
     // Increment filled slots
     numSlotsFilled = numSlotsFilled + _numSlots;
     // Increment slots owned by address
