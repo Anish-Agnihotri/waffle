@@ -99,6 +99,14 @@ contract Waffle is VRFConsumerBase, IERC721Receiver {
       slotOwners.push(msg.sender);
     }
 
+    /*
+      Potential optimization?
+
+      keep current index
+      swap with last and pop
+      decrement index by 1 to force check if last index item was address?
+    */
+
     // Increment filled slots
     numSlotsFilled = numSlotsFilled + _numSlots;
     // Increment slots owned by address
@@ -106,25 +114,6 @@ contract Waffle is VRFConsumerBase, IERC721Receiver {
 
     // Emit claim event
     emit SlotsClaimed(msg.sender, _numSlots);
-  }
-
-  /**
-   * Swaps element in array with last element and pops to delete
-   */
-  function _deleteAndRefundSlot(address _toDelete) internal {
-    // Loop through array
-    for (uint256 i = 0; i < slotOwners.length; i++) {
-      // If address matches address to delete
-      if (slotOwners[i] == _toDelete) {
-        // Delete array item
-        slotOwners[i] = slotOwners[slotOwners.length - 1];
-        slotOwners.pop();
-        // Refund
-        payable(_toDelete).transfer(slotPrice);
-        // Break execution to optimize
-        break;
-      }
-    }
   }
 
   /**
@@ -139,11 +128,26 @@ contract Waffle is VRFConsumerBase, IERC721Receiver {
     // Require number of slots owned by address to be >= _numSlots requested for refund
     require(addressToSlotsOwned[msg.sender] >= _numSlots, "Waffle: Address does not own number of requested slots.");
 
-    // Delete and refund slots
-    for (uint256 i = 0; i < _numSlots; i++) {
-      _deleteAndRefundSlot(msg.sender);
+    // Delete slots
+    uint256 idx = 0;
+    uint256 numToDelete = _numSlots;
+    // Loop through all entries while numToDelete still exist
+    while (idx < slotOwners.length && numToDelete > 0) {
+      // If address is not a match
+      if (slotOwners[idx] != msg.sender) {
+        // Only increment for non-matches. In case of match keep same to check against last idx item
+        idx++;
+      } else {
+        // Swap and pop
+        slotOwners[idx] = slotOwners[slotOwners.length - 1];
+        slotOwners.pop();
+        // Decrement num to delete
+        numToDelete--;
+      }
     }
 
+    // Repay raffle participant
+    payable(msg.sender).transfer(_numSlots * slotPrice);
     // Decrement filled slots
     numSlotsFilled = numSlotsFilled - _numSlots;
     // Decrement slots owned by address
