@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@chainlink/contracts/src/v0.8/dev/VRFConsumerBase.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
-contract Waffle is VRFConsumerBase {
+contract Waffle is VRFConsumerBase, IERC721Receiver {
   // ============ Immutable storage ============
 
   // Chainlink keyHash
@@ -111,13 +111,16 @@ contract Waffle is VRFConsumerBase {
   /**
    * Swaps element in array with last element and pops to delete
    */
-  function _deleteAndSwapSlot(address _toDelete) internal {
+  function _deleteAndRefundSlot(address _toDelete) internal {
     // Loop through array
     for (uint256 i = 0; i < slotOwners.length; i++) {
       // If address matches address to delete
       if (slotOwners[i] == _toDelete) {
+        // Delete array item
         slotOwners[i] = slotOwners[slotOwners.length - 1];
         slotOwners.pop();
+        // Refund
+        payable(_toDelete).transfer(slotPrice);
         // Break execution to optimize
         break;
       }
@@ -136,9 +139,9 @@ contract Waffle is VRFConsumerBase {
     // Require number of slots owned by address to be >= _numSlots requested for refund
     require(addressToSlotsOwned[msg.sender] >= _numSlots, "Waffle: Address does not own number of requested slots.");
 
-    // Delete slots
+    // Delete and refund slots
     for (uint256 i = 0; i < _numSlots; i++) {
-      _deleteAndSwapSlot(msg.sender);
+      _deleteAndRefundSlot(msg.sender);
     }
 
     // Decrement filled slots
@@ -229,5 +232,26 @@ contract Waffle is VRFConsumerBase {
       // Pop address from slot owners array
       slotOwners.pop();
     }
+  }
+
+  /**
+   * Receive NFT to raffle
+   */
+  function onERC721Received(
+    address operator,
+    address from, 
+    uint256 tokenId,
+    bytes calldata data
+  ) external override returns (bytes4) {
+    // Require NFT from correct contract
+    require(from == nftContract, "Waffle: Raffle not initiated with this NFT contract.");
+    // Require correct NFT ID
+    require(tokenId == nftID, "Waffle: Raffle not initiated with this NFT ID.");
+
+    // Toggle contract NFT ownership
+    nftOwned = true;
+
+    // Return required successful interface bytes
+    return 0x150b7a02;
   }
 }
