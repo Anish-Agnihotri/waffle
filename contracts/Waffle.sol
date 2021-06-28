@@ -44,6 +44,8 @@ contract Waffle is VRFConsumerBase {
 
   // Address of slot claimee and number of slots claimed
   event SlotsClaimed(address indexed claimee, uint256 numClaimed);
+  // Address of slot refunder and number of slots refunded
+  event SlotsRefunded(address indexed refunder, uint256 numRefunded);
   // Address of raffle winner
   event RaffleWon(address indexed winner);
 
@@ -106,7 +108,47 @@ contract Waffle is VRFConsumerBase {
     emit SlotsClaimed(msg.sender, _numSlots);
   }
 
-  // TODO: function refundSlot() {}
+  /**
+   * Swaps element in array with last element and pops to delete
+   */
+  function _deleteAndSwapSlot(address _toDelete) internal {
+    // Loop through array
+    for (uint256 i = 0; i < slotOwners.length; i++) {
+      // If address matches address to delete
+      if (slotOwners[i] == _toDelete) {
+        slotOwners[i] = slotOwners[slotOwners.length - 1];
+        slotOwners.pop();
+        // Break execution to optimize
+        break;
+      }
+    }
+  }
+
+  /**
+   * Deletes raffle slots and decrements filled slots
+   * @dev gas optimization: could force one-tx-per-slot-deletion to prevent iteration
+   */
+  function refundSlot(uint256 _numSlots) external {
+    // Require the raffle contract to own the NFT to raffle
+    require(nftOwned == true, "Waffle: Contract does not own raffleable NFT.");
+    // Prevent refunding after winner selection
+    require(randomResultRequested == false, "Waffle: Cannot refund slot after winner has been chosen.");
+    // Require number of slots owned by address to be >= _numSlots requested for refund
+    require(addressToSlotsOwned[msg.sender] >= _numSlots, "Waffle: Address does not own number of requested slots.");
+
+    // Delete slots
+    for (uint256 i = 0; i < _numSlots; i++) {
+      _deleteAndSwapSlot(msg.sender);
+    }
+
+    // Decrement filled slots
+    numSlotsFilled = numSlotsFilled - _numSlots;
+    // Decrement slots owned by address
+    addressToSlotsOwned[msg.sender] = addressToSlotsOwned[msg.sender] - _numSlots;
+
+    // Emit refund event
+    emit SlotsRefunded(msg.sender, _numSlots);
+  }
 
   /**
    * Collects randomness from Chainlink VRF to propose a winner.
